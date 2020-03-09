@@ -1,19 +1,26 @@
+
+Server = True
+#是否为服务器定时运行模式
+
 import urllib
 import hashlib
 import time
+import datetime
 import const
 import os
 import shutil
 import requests
 import html
 import sys
+import argparse
 import traceback
 import subprocess
+import timeit
 import re
 from tqdm import tqdm
 from download import DownloadPool
 from avalon import Avalon
-
+from time import sleep
 class RetryError(Exception):pass
 class RetryExhausted(RetryError):pass
 class RetryCheckFailed(RetryError):pass
@@ -24,13 +31,98 @@ class RequestError(TiebaApiError):
     def __init__(self, data):
         self.data = data
 
-const.PageUrl = "http://c.tieba.baidu.com/c/f/pb/page"
-const.FloorUrl = "http://c.tieba.baidu.com/c/f/pb/floor"
+start_time=timeit.default_timer()
+
+const.PageUrl    = "http://c.tieba.baidu.com/c/f/pb/page"
+const.FloorUrl   = "http://c.tieba.baidu.com/c/f/pb/floor"
 const.EmotionUrl = "http://tieba.baidu.com/tb/editor/images/client/"
-const.AliUrl = "https://tieba.baidu.com/tb/editor/images/ali/"
-const.VoiceUrl = "http://c.tieba.baidu.com/c/p/voice?play_from=pb_voice_play&voice_md5="
-const.SignKey = "tiebaclient!!!"
+const.AliUrl     = "https://tieba.baidu.com/tb/editor/images/ali/"
+const.VoiceUrl   = "http://c.tieba.baidu.com/c/p/voice?play_from=pb_voice_play&voice_md5="
+const.SignKey    = "tiebaclient!!!"
 # const.IS_WIN=(os.name=="nt")
+
+OverWriteMode = 0
+PreList = list()
+ServerDir = ""
+
+if (Server):
+    pid = 6477171863
+    #帖子链接/id
+    lz = True
+    #是否只看楼主
+    comment = False
+    #是否包含评论
+    DirName = "lz-html"
+    #输出文件夹路径,为空则默认为(\"吧名\\标题\)
+    OutPutFileName = "index"
+    #输出文件名,方便网站部署
+    OutputHTML = True
+    #是否输出html,否则输出markdown
+    OverWriteMode = 3
+    #存在同名文件处理方式:1-跳过 2-覆盖 3-备份已有文件夹
+    PreSet = False
+    #批量模式
+    PreList = [6477171863,0]
+    #批量模式下帖子链接/pid,最后一项必须为0
+    Copy = True
+    #是否对备份完成的帖子复制到部署文件夹,批量模式下不可用
+    ServerDir = "C:\\Users\\Administrator\\测试\\233"
+    #对备份完成的帖子复制到部署文件夹的路径
+    Avalon.info("正在以Server模式运行 " + str(datetime.datetime.now()))
+else:
+    Avalon.info("正在以交互模式运行 " + str(datetime.datetime.now()))
+
+
+Work_path = ""
+#设置工作目录,即备份文件储存目录
+if (Server):
+    if (os.path.exists(Work_path)):
+        try:
+            os.chdir(Work_path)
+        except KeyboardInterrupt:
+            ForceStop()
+            Avalon.error("Control-C,exiting",front="\n")
+            exit(0)
+        except UserCancelled:
+            Avalon.warning("用户取消")
+        except Exception as err:
+            ForceStop()
+            Avalon.error("发生异常:\n"+traceback.format_exc() + str(datetime.datetime.now()),front="\n")
+            exit(0)
+    else:
+        Avalon.warning("指定工作目录不存在!请检查!当前工作目录为" + os.getcwd())
+
+
+
+if (len(sys.argv) > 1):
+    if (sys.argv[1] == "--lz-T"):
+        lz = True
+        Avalon.info("从传入参数获取新的只看楼主模式:True")
+    elif (sys.argv[1] == "--lz-F"):
+        lz = False
+        Avalon.info("从传入参数获取新的只看楼主模式:False")
+    if (len(sys.argv) > 3):
+        if (sys.argv[2] == "--DirName"):
+            DirName = sys.argv[3]
+            Avalon.info("从传入参数获取输出文件夹路径:"+DirName)
+
+
+Html_Header =(
+'''<!doctype html>
+<html lang="zh-cn">
+<head>
+<link rel="stylesheet" type="text/css" href="main.css">
+</head>
+<body>
+<div id="write">
+'''
+)
+#Html文件头
+
+if (Server and PreSet):
+    DirName = ""
+    Avalon.info("正在以批量模式运行,任务列表: [" + (','.join('%s' %id for id in PreList)) + "]")
+
 
 def MakeDir(dirname):
     global IsCreate
@@ -46,7 +138,7 @@ def MakeDir(dirname):
 
 def Init(pid,overwrite):
     global FileHandle,Progress,AudioCount,VideoCount,ImageCount,\
-        Pool,IsDownload,DirName,IsCreate,OutputHTML,FFmpeg
+        Pool,IsDownload,DirName,IsCreate,OutputHTML,FFmpeg,OutPutFileName,DirName_New
     IsDownload=set()
     IsCreate=set()
     AudioCount=VideoCount=ImageCount=0
@@ -56,6 +148,18 @@ def Init(pid,overwrite):
             Avalon.warning("跳过%d"%pid)
         elif (overwrite==2):
             Avalon.warning("默认覆盖\"%s\""%DirName)
+        elif (overwrite==3):
+            if (len(DirName) > 30):
+                DirName_New = DirName[:-11]
+            else:
+                DirName_New = DirName
+            if (Server):
+                Avalon.info("已将已存在文件夹备份至" + DirName + " " + (datetime.datetime.now()-datetime.timedelta(hours=12)).strftime('%m_%d %H-%M'))
+                shutil.move(DirName,DirName_New + " " + (datetime.datetime.now()-datetime.timedelta(hours=12)).strftime('%m_%d %H-%M'))
+            if not (Server):
+                Avalon.info("已将已存在文件夹备份至" + DirName + " " + datetime.datetime.now().strftime('%Y_%m_%d %H-%M'))
+                shutil.move(DirName,DirName_New + " " + datetime.datetime.now().strftime('%Y_%m_%d %H-%M'))
+            os.makedirs(DirName)
         elif (not Avalon.ask("是否覆盖?",False)):
             raise UserCancelled("...")
     elif (os.path.exists(DirName)):
@@ -63,12 +167,11 @@ def Init(pid,overwrite):
     else:
         os.makedirs(DirName)
     if (OutputHTML):
-        FileHandle=open("%s/%d.html"%(DirName,pid),"w",encoding="utf-8")
-        Write('<!doctype html><html lang="zh-cn"><head><link rel="stylesheet"'\
-            ' type="text/css" href="main.css"></head><body><div id="write">')
+        FileHandle=open("%s/%s.html"%(DirName,OutPutFileName),"w+",encoding="utf-8")
+        Write(Html_Header)
         shutil.copy("main.css",DirName+"/")
     else:
-        FileHandle=open("%s/%d.md"%(DirName,pid),"w",encoding="utf-8")
+        FileHandle=open("%s/%s.md"%(DirName,OutPutFileName),"w+",encoding="utf-8")
     try:
         subprocess.Popen("ffmpeg",stdout=subprocess.DEVNULL,\
             stderr=subprocess.DEVNULL).wait()
@@ -348,52 +451,100 @@ def GetPost(pid,lz,comment):
         # print(fid,lastfid)
         lastfid=fid
 
-while (1):
-    try:
-        if (Avalon.ask("批量模式?",False)):
-            PreSet=True
-            lz=Avalon.ask("只看楼主?",False)
-            comment=(0 if lz else Avalon.ask("包括评论?",True))
-            OutputHTML=Avalon.ask("输出HTML(否则表示输出Makrdown)?:",True)
-            overwrite=Avalon.ask("默认覆盖?",False)
-            Avalon.info("选定:%s && %s评论 , 目录:\"吧名\\标题\""%(("楼主" if lz else "全部"),("全" if comment else "无")))
-            if (not Avalon.ask("确认无误?",True)):
-                Avalon.warning("请重新输入")
-            else:
-                break
-        else:
-            PreSet=False
-            break
-    except KeyboardInterrupt:
-        ForceStop()
-        Avalon.error("Control-C,exiting",front="\n")
-        exit(0)
-
-while (1):
-    try:
+if not (Server):
+    while (1):
         try:
-            pid=int((Avalon.gets("请输入帖子链接或id(输入0退出):").split('/'))[-1].split('?')[0])
+            if (Avalon.ask("批量模式?",False)):
+                PreList = list()
+                PreSet=True
+                lz=Avalon.ask("只看楼主?",False)
+                comment=(Avalon.ask("包括评论?",True))
+                OutPutFileName=(Avalon.gets("输出文件名(为空则为帖子id):"))
+                OutputHTML=Avalon.ask("输出HTML(否则表示输出Makrdown)?:",True)
+                while(1):
+                    OverWriteMode=int(Avalon.gets("存在同名文件夹时操作? 1-跳过 2-覆盖 3-备份 请输入(1/2/3):"))
+                    if (OverWriteMode != 1 and OverWriteMode and 2 and OverWriteMode != 3):
+                        Avalon.warning("请输入1/2/3")
+                        continue
+                    else:
+                        break
+                Avalon.info("选定:%s && %s评论 , 目录:\"吧名\\标题\" , 文件名:\"%s%s\" , 文件夹冲突处理模式:%d"%(("楼主" if lz else "全部"),("全" if comment else "无"),OutPutFileName,(".html" if OutputHTML else ".md",OverWriteMode)))
+                if (not Avalon.ask("确认无误?",True)):
+                    Avalon.warning("请重新输入")
+                else:
+                    break
+            else:
+                PreSet=False
+                break
+        except KeyboardInterrupt:
+            ForceStop()
+            Avalon.error("Control-C,exiting",front="\n")
+            exit(0)
+
+if (not Server and PreSet):
+    while(1):
+        try:
+            pid_input=int((Avalon.gets("请输入帖子链接或id(输入0结束输入):").split('/'))[-1].split('?')[0])
+            PreList.append(pid_input)
+            if (pid_input == 0):
+                break
         except Exception:
             Avalon.warning("未找到正确的id")
             continue
-        if (pid==0):
+        except KeyboardInterrupt:
+            ForceStop()
+            Avalon.error("Control-C,exiting",front="\n")
             exit(0)
-        Avalon.info("id:%d"%pid)
+
+if (not Server and PreSet):
+    DirName = ""
+    OutPutFileName = str("")
+    Avalon.info("正在以批量模式运行,任务列表: [" + (','.join('%s' %id for id in PreList)) + "]")
+
+n = -1
+Error = False
+
+while (1):
+    n = n+1
+    try:
+        if (PreSet):
+            pid = PreList[n]
+        if not (Server or PreSet):
+            try:
+                pid=int((Avalon.gets("请输入帖子链接或id(输入0退出):").split('/'))[-1].split('?')[0])
+            except Exception:
+                Avalon.warning("未找到正确的id")
+                continue
+        if (pid==0):
+            if (PreSet):
+                end_time=timeit.default_timer()
+                Avalon.info('运行用时: %s 秒'%(end_time-start_time))
+            exit(0)
+        if (not Server and PreSet):  
+            Avalon.info("id:%d"%pid)
         title=GetTitle(pid)
         title["forum"]=re.sub(r"[\/\\\:\*\?\"\<\>\|]", "_",title["forum"])
         title["post"]=re.sub(r"[\/\\\:\*\?\"\<\>\|]", "_",title["post"])
-        if (not PreSet):
+        if not (Server or PreSet):
             lz=Avalon.ask("只看楼主?",False)
-            comment=(0 if lz else Avalon.ask("包括评论?",True))
+            comment=(Avalon.ask("包括评论?",True))
             DirName=Avalon.gets("文件夹名(空则表示使用\"吧名\\标题\"):")
+            OutPutFileName=Avalon.gets("输出文件名(为空则为帖子id):")
             OutputHTML=Avalon.ask("输出HTML(否则表示输出Makrdown)?:",True)
-            if (len(DirName)==0):
-                DirName=title["forum"]+"\\"+title["post"]
-            Avalon.info("id:%d , 选定:%s && %s评论 , 目录:\"%s\""%(pid,("楼主" if lz else "全部"),("全" if comment else "无"),DirName))
-            Init(pid,0)
-        else:
-            DirName=title["forum"]+"\\"+title["post"]
-            Init(pid,int(overwrite)+1)
+            while(1):
+                OverWriteMode=int(Avalon.gets("存在同名文件夹时操作? 1-跳过 2-覆盖 3-备份 请输入(1/2/3):"))
+                if (OverWriteMode != 1 and OverWriteMode and 2 and OverWriteMode != 3):
+                    Avalon.warning("请输入1/2/3")
+                    continue
+                else:
+                    break
+        if (len(DirName)==0):
+            title_name=re.sub(r'(/|\\|\?|\||\*|\:|\"|\<|\>|\.)','',title["post"])
+            DirName= (title["forum"]+"\\"+title_name)[0:30]
+        if (len(OutPutFileName)==0):
+            OutPutFileName = str(pid)
+        Avalon.info("id:%d , 选定:%s && %s评论 , 目录:\"%s\" , 文件名:\"%s%s\" , 文件夹冲突处理模式:%d"%(pid,("楼主" if lz else "全部"),("全" if comment else "无"),DirName,OutPutFileName,(".html" if OutputHTML else ".md"),OverWriteMode))
+        Init(pid,OverWriteMode)
         GetPost(pid,lz,comment)
         Done()
         ConvertAudio()
@@ -405,12 +556,42 @@ while (1):
         Avalon.warning("用户取消")
     except RequestError as err:
         err=err.data
-        Avalon.error("百度贴吧API返回错误,代码:%d\n描述:%s"%(err["code"],err["msg"]),front="\n")
+        Avalon.error("百度贴吧API返回错误,代码:%d\n描述:%s \n"%(err["code"],err["msg"]) + str(datetime.datetime.now()),front="\n\n")
+        Error = True
     except Exception as err:
         ForceStop()
-        Avalon.error("发生异常:\n"+traceback.format_exc(),front="\n")
+        Avalon.error("发生异常:\n"+traceback.format_exc() + str(datetime.datetime.now()),front="\n\n")
         exit(0)
     else:
-        Avalon.info("完成 %d"%pid)
-    if (not PreSet):
+        Avalon.info("%d 已完成"%pid)
+        if not (PreSet):
+            end_time=timeit.default_timer()
+            Avalon.info('运行用时: %s 秒'%(end_time-start_time))
+    if not (PreSet):
         break
+
+if (not Error and Copy):
+    try:
+        copy_start_time=timeit.default_timer()
+        Avalon.info("正在将" + DirName + "复制到" + ServerDir)
+        try:
+            shutil.rmtree(ServerDir)
+        except:
+            pass
+        shutil.copytree(DirName,ServerDir)
+        Avalon.info("已经将" + DirName + "复制到" + ServerDir)
+        
+        copy_end_time=timeit.default_timer()
+        Avalon.info('复制用时: %s 秒'%(copy_end_time-copy_start_time))
+    except KeyboardInterrupt:
+        ForceStop()
+        Avalon.error("Control-C,exiting",front="\n")
+        exit(0)
+    except UserCancelled:
+        Avalon.warning("用户取消")
+    except Exception as err:
+        ForceStop()
+        Avalon.error("发生异常:\n"+traceback.format_exc() + str(datetime.datetime.now()),front="\n\n")
+        exit(0)
+elif (Error):
+    Avalon.error("由于发生异常错误,本次部署取消")
