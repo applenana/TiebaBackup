@@ -1,9 +1,11 @@
 import aiohttp
 import asyncio
+from avalon import Avalon
 import time
 import threading
 from tqdm import tqdm
 from functools import wraps
+from time import sleep
 
 class RetryExhaustedError(Exception):pass
 
@@ -52,7 +54,14 @@ class DownloadPool():
 
     def Stop(self):
         self.StopLoop(self.DownLoop)
+        try_num = 0
         while (self.DownLoop.is_running()):
+            try_num = try_num + 1
+            if (try_num >= 100):
+                Avalon.warning("下载线程无响应,正在强制结束...",front="\n\n")
+                Avalon.warning("强制结束可能导致部分图片未能下载,建议手动检查")
+                sleep(2)
+                break
             time.sleep(0.5)
         self.ImgProc.close()
 
@@ -64,9 +73,9 @@ class DownloadPool():
     async def AsyncDownload(self,url,filename):
         self.Running+=1
         async with aiohttp.ClientSession() as session:
-            self.ImgProc.set_description("Downloading %s"%filename)
+            self.ImgProc.set_description("正在下载 %s"%filename)
             raw=await self.GetRaw(session,url)
-            self.ImgProc.set_description("Downloading %s"%filename)
+            self.ImgProc.set_description("正在下载 %s"%filename)
             with open(self.Dir+filename,"wb") as f:
                 f.write(raw)
         self.ImgProc.update(1)
