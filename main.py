@@ -380,19 +380,20 @@ def SignRequest(data):
     return data
 
 def TiebaRequest(url,data,first=False):
-    if (first):
-        req=Retry(requests.post,args=(url,),kwargs={"data":SignRequest(data)},cfunc=(lambda x: x.status_code==200),ffunc=print,fargs=("连接失败,正在重试...\n",),times=10)
-    else:
-        req=Retry(requests.post,args=(url,),kwargs={"data":SignRequest(data)},cfunc=(lambda x: x.status_code==200),ffunc=Progress.set_description,fargs=("连接失败,正在重试...",),times=10)
-    req.encoding='utf-8'
-    if (req.content):
-        ret=req.json()
-    else:
-        if (first):
-            req=Retry(requests.post,args=(url,),kwargs={"data":SignRequest(data)},cfunc=(lambda x: x.status_code==200),ffunc=print,fargs=("连接失败,正在重试...\n",),times=10)
-        else:
-            req=Retry(requests.post,args=(url,),kwargs={"data":SignRequest(data)},cfunc=(lambda x: x.status_code==200),ffunc=Progress.set_description,fargs=("连接失败,正在重试...",),times=10)
-        ret=req.json()
+    JsonRetry = 0
+    while(JsonRetry=<5):
+        try:
+            if (first):
+                req=Retry(requests.post,args=(url,),kwargs={"data":SignRequest(data)},cfunc=(lambda x: x.status_code==200),ffunc=print,fargs=("连接失败,正在重试...\n",),times=10)
+            else:
+                req=Retry(requests.post,args=(url,),kwargs={"data":SignRequest(data)},cfunc=(lambda x: x.status_code==200),ffunc=Progress.set_description,fargs=("连接失败,正在重试...",),times=10)
+            req.encoding='utf-8'
+            ret=req.json()# JSON错误的源头
+            break
+        except:
+            Avalon.warning("遇到一次JSON错误,正在重试")
+            JsonRetry+=1
+            continue
     #print(ret)
     if (int(ret["error_code"])!=0):
         raise RequestError({"code":int(ret["error_code"]),"msg":str(ret["error_msg"])})
