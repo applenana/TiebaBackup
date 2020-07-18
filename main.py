@@ -381,7 +381,7 @@ def SignRequest(data):
 
 def TiebaRequest(url,data,first=False):
     JsonRetry = 0
-    while(JsonRetry=<5):
+    while(JsonRetry<=5):
         try:
             if (first):
                 req=Retry(requests.post,args=(url,),kwargs={"data":SignRequest(data)},cfunc=(lambda x: x.status_code==200),ffunc=print,fargs=("连接失败,正在重试...\n",),times=10)
