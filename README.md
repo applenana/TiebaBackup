@@ -5,7 +5,9 @@ linux:
 ```bash
 apt-get install python3 python3-pip
 pip3 install -r requirements.txt
-python3 main.py
+pip3 install pdfkit
+前往官网https://wkhtmltopdf.org/downloads.html下载对应版本并安装
+python3 ser.py
 ```
 
 windows:
@@ -14,6 +16,9 @@ windows:
 
 ```cmd
 pip install -r requirements.txt
-python3 main.py
+pip install pdfkit
+前往官网https://wkhtmltopdf.org/downloads.html下载对应版本并安装
+python ser.py
 ```
+
 
